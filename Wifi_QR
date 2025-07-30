@@ -1,0 +1,148 @@
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+import tkinter as tk
+from tkinter import messagebox, filedialog
+import qrcode
+from qrcode.constants import ERROR_CORRECT_H
+from PIL import Image, ImageTk
+
+# Color scheme
+PANEL_BG = "#201b2c"
+MAIN_BG = "#181325"
+ACCENT = "#7c3aed"
+
+# Pillow 10+ compatibility for image resizing
+try:
+    RESAMPLE = Image.Resampling.LANCZOS
+except AttributeError:
+    RESAMPLE = Image.LANCZOS
+
+def create_qr(wifi_ssid, wifi_password, wifi_type, hidden='false'):
+    """Generate a WiFi QR code with better quality."""
+    qr_data = f"WIFI:T:{wifi_type};S:{wifi_ssid};P:{wifi_password};H:{hidden};;"
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    return img
+
+class WifiQRApp(tb.Window):
+    def __init__(self):
+        super().__init__(themename="darkly")
+        self.title("WiFi QR Code Generator")
+        self.geometry("560x700")
+        self.configure(bg=MAIN_BG)
+        self.resizable(True, True)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self._build_ui()
+        self._set_event_resizer()
+
+    def _build_ui(self):
+        # Main card frame
+        card = tk.Frame(self, bg=PANEL_BG, bd=0, highlightthickness=0)
+        card.grid(row=0, column=0, padx=50, pady=50, sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+
+        self.heading = tk.Label(card, text="WiFi QR Code Generator", fg=ACCENT, bg=PANEL_BG, font=("Segoe UI", 18, "bold"))
+        self.heading.grid(row=0, column=0, pady=(20, 10), sticky="ew")
+
+        # SSID
+        tb.Label(card, text="WiFi Name (SSID):", bootstyle=PRIMARY, background=PANEL_BG)\
+            .grid(row=1, column=0, sticky='w', pady=(10, 2), padx=10)
+        self.ssid_entry = tb.Entry(card, width=30, bootstyle=SECONDARY, font=("Segoe UI", 12))
+        self.ssid_entry.grid(row=2, column=0, padx=10, pady=(0,5), sticky='ew')
+
+        # Password
+        tb.Label(card, text="WiFi Password:", bootstyle=PRIMARY, background=PANEL_BG)\
+            .grid(row=3, column=0, sticky='w', pady=(10, 2), padx=10)
+        self.pass_entry = tb.Entry(card, width=30, bootstyle=SECONDARY, show="*", font=("Segoe UI", 12))
+        self.pass_entry.grid(row=4, column=0, padx=10, pady=(0,5), sticky='ew')
+
+        # Show/Hide Password Toggle
+        self.show_pass_var = tk.BooleanVar()
+        show_pass_check = tb.Checkbutton(
+            card, text="Show Password", variable=self.show_pass_var, bootstyle="round-toggle",
+            command=self.toggle_password
+        )
+        show_pass_check.grid(row=5, column=0, sticky='w', padx=10, pady=(0,5))
+
+        # Security Type
+        tb.Label(card, text="Security Type:", bootstyle=PRIMARY, background=PANEL_BG)\
+            .grid(row=6, column=0, sticky='w', pady=(10, 2), padx=10)
+        self.sectype = tb.Combobox(card, values=["WPA", "WEP", "nopass"], state="readonly", width=19, bootstyle=SECONDARY)
+        self.sectype.set("WPA")
+        self.sectype.grid(row=7, column=0, padx=10, pady=(0,5), sticky='ew')
+
+        # Hidden Network Checkbox
+        self.hidden_var = tk.BooleanVar()
+        tb.Checkbutton(card, text="Hidden SSID", variable=self.hidden_var, bootstyle="round-toggle")\
+            .grid(row=8, column=0, sticky='w', padx=10, pady=(0,10))
+
+        # Generate Button
+        self.show_qr_btn = tb.Button(
+            card, text="Generate QR Code", width=25, bootstyle="info-outline", command=self.show_qr
+        )
+        self.show_qr_btn.grid(row=9, column=0, pady=(20,6))
+
+        # QR Code Display
+        self.qr_canvas = tk.Label(card, bg=PANEL_BG)
+        self.qr_canvas.grid(row=10, column=0, pady=12)
+        card.grid_rowconfigure(10, weight=1)
+
+        # Save Button
+        self.save_btn = tb.Button(
+            card, text="Save QR Code", width=25, bootstyle="success-outline",
+            state=DISABLED, command=self.save_qr
+        )
+        self.save_btn.grid(row=11, column=0, pady=(4, 16))
+
+        self.card = card
+
+    def _set_event_resizer(self):
+        self.bind('<Configure>', self._on_resize)
+
+    def _on_resize(self, event):
+        if hasattr(self, 'qr_img') and self.qr_img:
+            self._show_qr_image(self.qr_img)
+
+    def _show_qr_image(self, img):
+        card_width = self.card.winfo_width()
+        avail_size = min(max(card_width-60, 140), 340)  # Slightly larger for better visibility
+        qr_img_resized = img.resize((avail_size, avail_size), RESAMPLE)
+        self.tk_img = ImageTk.PhotoImage(qr_img_resized)
+        self.qr_canvas.config(image=self.tk_img)
+
+    def toggle_password(self):
+        self.pass_entry.config(show="" if self.show_pass_var.get() else "*")
+
+    def show_qr(self):
+        ssid = self.ssid_entry.get()
+        pwd = self.pass_entry.get()
+        sec = self.sectype.get()
+        hidden = "true" if self.hidden_var.get() else "false"
+
+        if not ssid or (sec != "nopass" and not pwd):
+            messagebox.showerror("Input Error", "Please enter all required information.")
+            return
+
+        qr_img = create_qr(ssid, pwd, sec, hidden)
+        self.qr_img = qr_img
+        self._show_qr_image(qr_img)
+        self.save_btn.config(state=NORMAL)
+
+    def save_qr(self):
+        path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG Files", "*.png")])
+        if path:
+            self.qr_img.save(path)
+            messagebox.showinfo("Saved", f"QR saved as {path}")
+
+if __name__ == "__main__":
+    app = WifiQRApp()
+    app.mainloop()
